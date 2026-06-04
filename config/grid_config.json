@@ -14,5 +14,5 @@
   "scroll_trigger_col": 1,
   "scan_after_scroll_row": 3,
 
-  "auto_scroll_cycles": 3
+  "max_auto_scroll_cycles": 400
 }
