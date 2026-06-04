@@ -7,7 +7,6 @@ CONFIG_PATH = "config/roi_config.json"
 
 ROI_NAMES = [
     "disc_name",
-    "slot",
     "main_stat",
     "level",
     "substats",
