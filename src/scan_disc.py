@@ -81,5 +81,24 @@ def main():
     print(f"\nSaved to {OUTPUT_PATH}")
 
 
-if __name__ == "__main__":
-    main()
+def scan_current_disc() -> dict:
+    rois = load_rois()
+    screenshot = capture_window("Zenless")
+
+    ocr_results = {}
+
+    for field_name, roi in rois.items():
+        text = ocr_crop(screenshot, roi)
+        ocr_results[field_name] = text
+
+    return build_disc_json(ocr_results)
+
+
+def main():
+    disc_json = scan_current_disc()
+
+    append_disc_to_output(disc_json)
+
+    print(json.dumps(disc_json, indent=2, ensure_ascii=False))
+    print(f"\nSaved to {OUTPUT_PATH}")
+
