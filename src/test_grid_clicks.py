@@ -1,6 +1,6 @@
 import json
 import time
-import pyautogui
+import pydirectinput
 
 from capture_window import find_zzz_window, activate_window
 
@@ -21,16 +21,19 @@ def main():
     first_y = config["first_y"]
     x_step = config["x_step"]
 
-    print("Testing first 5 disc clicks.")
+    print("Testing first 5 disc clicks with PyDirectInput.")
     print("Watch ZZZ and confirm whether the yellow selection box moves.")
+
+    time.sleep(1)
 
     for col in range(5):
         x = base_left + first_x + col * x_step
         y = base_top + first_y
 
         print(f"Clicking col={col + 1} at screen position ({x}, {y})")
-        pyautogui.moveTo(x, y, duration=0.2)
-        pyautogui.click()
+        pydirectinput.moveTo(x, y)
+        time.sleep(0.2)
+        pydirectinput.click()
         time.sleep(1.2)
 
     print("Done.")
