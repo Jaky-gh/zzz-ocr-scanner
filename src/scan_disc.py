@@ -1,18 +1,28 @@
 import json
 import logging
 import os
+from time import perf_counter
 import cv2
 import numpy as np
 import pytesseract
 
 from PIL import Image
 from app_logging import configure_logging
-from capture_window import capture_window
+from capture_window import capture_existing_window, capture_window
 from text_parser import build_disc_json
 
 CONFIG_PATH = "config/roi_config.json"
 OUTPUT_PATH = "output/scanned_discs.json"
 LOGGER_NAME = "zzz_scanner.scan_disc"
+logger = logging.getLogger(LOGGER_NAME)
+
+DEFAULT_OCR_CONFIG = "--psm 6"
+FIELD_OCR_CONFIG = {
+    "disc_name": "--psm 7",
+    "main_stat": "--psm 7",
+    "level": "--psm 7 -c tessedit_char_whitelist=Lv.0123456789/",
+    "substats": "--psm 6",
+}
 
 # Update this if your Tesseract path is different.
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -28,16 +38,33 @@ def preprocess_for_ocr(pil_image: Image.Image) -> Image.Image:
     return Image.fromarray(img)
 
 
-def ocr_crop(image: Image.Image, roi: dict) -> str:
+def ocr_crop(
+    image: Image.Image,
+    roi: dict,
+    field_name: str | None = None,
+    timings: dict | None = None,
+) -> str:
+    started_at = perf_counter()
     x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
     crop = image.crop((x, y, x + w, y + h))
 
+    preprocess_started_at = perf_counter()
     processed = preprocess_for_ocr(crop)
+    preprocess_elapsed = perf_counter() - preprocess_started_at
 
+    ocr_started_at = perf_counter()
     text = pytesseract.image_to_string(
         processed,
-        config="--psm 6"
+        config=FIELD_OCR_CONFIG.get(field_name, DEFAULT_OCR_CONFIG),
     )
+    ocr_elapsed = perf_counter() - ocr_started_at
+
+    if timings is not None and field_name:
+        timings.setdefault("fields", {})[field_name] = {
+            "preprocess": preprocess_elapsed,
+            "ocr": ocr_elapsed,
+            "total": perf_counter() - started_at,
+        }
 
     return text.strip()
 
@@ -65,31 +92,64 @@ def append_disc_to_output(disc: dict):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def scan_current_disc() -> dict:
+def scan_current_disc(window=None, return_timing: bool = False):
+    total_started_at = perf_counter()
+
+    rois_started_at = perf_counter()
     rois = load_rois()
-    screenshot = capture_window("Zenless")
+    timings = {
+        "load_rois": perf_counter() - rois_started_at,
+        "fields": {},
+    }
+
+    capture_started_at = perf_counter()
+    if window is None:
+        screenshot = capture_window("Zenless")
+    else:
+        screenshot = capture_existing_window(window)
+    timings["capture"] = perf_counter() - capture_started_at
 
     ocr_results = {}
 
+    all_ocr_started_at = perf_counter()
     for field_name, roi in rois.items():
-        text = ocr_crop(screenshot, roi)
+        text = ocr_crop(
+            image=screenshot,
+            roi=roi,
+            field_name=field_name,
+            timings=timings,
+        )
         ocr_results[field_name] = text
+    timings["ocr_total"] = perf_counter() - all_ocr_started_at
 
-    return build_disc_json(ocr_results)
+    parse_started_at = perf_counter()
+    disc_json = build_disc_json(ocr_results)
+    timings["parse"] = perf_counter() - parse_started_at
+    timings["total"] = perf_counter() - total_started_at
+
+    if return_timing:
+        return disc_json, timings
+
+    return disc_json
 
 
 def main():
     configure_logging()
 
-    logger = logging.getLogger(LOGGER_NAME)
-    disc_json = scan_current_disc()
+    disc_json, timings = scan_current_disc(return_timing=True)
 
     append_disc_to_output(disc_json)
 
     logger.info("Scanned disc:\n%s", json.dumps(disc_json, indent=2, ensure_ascii=False))
+    logger.info(
+        "Scan timings: total=%.3fs capture=%.3fs ocr=%.3fs parse=%.3fs",
+        timings["total"],
+        timings["capture"],
+        timings["ocr_total"],
+        timings["parse"],
+    )
     logger.info("Saved to %s", OUTPUT_PATH)
 
 
 if __name__ == "__main__":
     main()
-

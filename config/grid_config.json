@@ -6,8 +6,9 @@
   "x_step": 89,
   "y_step": 117,
 
-  "click_delay": 1.0,
-  "auto_scroll_delay": 1.0,
+  "click_delay": 0.35,
+  "input_settle_delay": 0.05,
+  "auto_scroll_delay": 0.6,
 
   "initial_scan_rows": [1, 2, 3],
   "scroll_trigger_row": 4,

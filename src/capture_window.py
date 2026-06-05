@@ -57,14 +57,7 @@ def activate_window(window):
         )
 
 
-def capture_zzz_window() -> Image.Image:
-    window = find_zzz_window()
-
-    logger.info("Found ZZZ window: %r", window.title)
-
-    activate_window(window)
-
-    # Refresh window position after activation
+def capture_existing_window(window) -> Image.Image:
     left = window.left
     top = window.top
     width = window.width
@@ -82,6 +75,16 @@ def capture_zzz_window() -> Image.Image:
         image = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
 
     return image
+
+
+def capture_zzz_window() -> Image.Image:
+    window = find_zzz_window()
+
+    logger.info("Found ZZZ window: %r", window.title)
+
+    activate_window(window)
+
+    return capture_existing_window(window)
 
 
 # Keep this name so your other files do not break

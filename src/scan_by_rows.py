@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+from time import perf_counter
 
 import pydirectinput
 
@@ -12,6 +13,7 @@ from scan_disc import scan_current_disc
 GRID_CONFIG_PATH = "config/grid_config.json"
 OUTPUT_PATH = "output/scanned_discs.json"
 logger = logging.getLogger("zzz_scanner.scan_by_rows")
+pydirectinput.PAUSE = 0
 
 
 def load_grid_config() -> dict:
@@ -79,10 +81,41 @@ def click_grid_position(window, config, row_number: int, col_number: int):
     y = base_top + first_y + row_index * y_step
 
     pydirectinput.moveTo(x, y)
-    time.sleep(0.15)
+    time.sleep(config.get("input_settle_delay", 0.05))
     pydirectinput.click()
 
     return x, y
+
+
+def format_scan_timing(timings: dict) -> str:
+    fields = timings.get("fields", {})
+    field_parts = [
+        f"{field_name}={field_timing.get('total', 0):.3f}s"
+        for field_name, field_timing in fields.items()
+    ]
+    field_summary = ", ".join(field_parts)
+
+    return (
+        f"capture={timings.get('capture', 0):.3f}s "
+        f"ocr={timings.get('ocr_total', 0):.3f}s "
+        f"parse={timings.get('parse', 0):.3f}s "
+        f"total={timings.get('total', 0):.3f}s"
+        + (f" fields=[{field_summary}]" if field_summary else "")
+    )
+
+
+def summarize_scan_timings(timings: list[dict]) -> dict:
+    if not timings:
+        return {}
+
+    count = len(timings)
+    return {
+        "count": count,
+        "capture": sum(timing.get("capture", 0) for timing in timings) / count,
+        "ocr_total": sum(timing.get("ocr_total", 0) for timing in timings) / count,
+        "parse": sum(timing.get("parse", 0) for timing in timings) / count,
+        "total": sum(timing.get("total", 0) for timing in timings) / count,
+    }
 
 
 def scan_row_to_memory(window, config, row_number: int, label: str) -> list[dict]:
@@ -93,23 +126,33 @@ def scan_row_to_memory(window, config, row_number: int, label: str) -> list[dict
     columns = config["columns"]
     click_delay = config.get("click_delay", 1.0)
 
+    row_started_at = perf_counter()
     row_discs = []
+    row_timings = []
 
     logger.info("Scanning row to memory: %s, visual row %s", label, row_number)
 
     for col_number in range(1, columns + 1):
         logger.info("Clicking row=%s, col=%s", row_number, col_number)
 
+        click_started_at = perf_counter()
         click_grid_position(
             window=window,
             config=config,
             row_number=row_number,
             col_number=col_number,
         )
+        click_elapsed = perf_counter() - click_started_at
 
+        wait_started_at = perf_counter()
         time.sleep(click_delay)
+        wait_elapsed = perf_counter() - wait_started_at
 
-        disc = scan_current_disc()
+        disc, scan_timings = scan_current_disc(
+            window=window,
+            return_timing=True,
+        )
+        row_timings.append(scan_timings)
 
         disc["scan_mode"] = "row_compare_auto_stop"
         disc["visual_row"] = row_number
@@ -119,11 +162,27 @@ def scan_row_to_memory(window, config, row_number: int, label: str) -> list[dict
         row_discs.append(disc)
 
         logger.info(
-            "Read: %s | slot=%s | level=%s",
+            "Read: %s | slot=%s | level=%s | click=%.3fs wait=%.3fs %s",
             disc.get("disc_name"),
             disc.get("slot"),
             disc.get("level"),
+            click_elapsed,
+            wait_elapsed,
+            format_scan_timing(scan_timings),
         )
+
+    row_summary = summarize_scan_timings(row_timings)
+    logger.info(
+        "Finished row %s (%s): discs=%s elapsed=%.3fs avg_capture=%.3fs avg_ocr=%.3fs avg_parse=%.3fs avg_scan_total=%.3fs",
+        row_number,
+        label,
+        len(row_discs),
+        perf_counter() - row_started_at,
+        row_summary.get("capture", 0),
+        row_summary.get("ocr_total", 0),
+        row_summary.get("parse", 0),
+        row_summary.get("total", 0),
+    )
 
     return row_discs
 
@@ -132,6 +191,7 @@ def commit_row(row_discs: list[dict], data: list, existing_keys: set, label: str
     """
     Saves one row to JSON, skipping individual duplicate discs.
     """
+    started_at = perf_counter()
     added_count = 0
 
     logger.info("Committing row: %s", label)
@@ -159,7 +219,7 @@ def commit_row(row_discs: list[dict], data: list, existing_keys: set, label: str
 
     save_data(data)
 
-    logger.info("Committed %s new discs.", added_count)
+    logger.info("Committed %s new discs in %.3fs.", added_count, perf_counter() - started_at)
     return added_count
 
 
@@ -178,6 +238,7 @@ def trigger_game_scroll(window, config):
         trigger_col,
     )
 
+    started_at = perf_counter()
     click_grid_position(
         window=window,
         config=config,
@@ -186,6 +247,7 @@ def trigger_game_scroll(window, config):
     )
 
     time.sleep(scroll_delay)
+    logger.info("Auto-scroll trigger completed in %.3fs.", perf_counter() - started_at)
 
 
 def main():

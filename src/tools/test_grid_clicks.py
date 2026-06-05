@@ -10,6 +10,7 @@ from src.capture_window import find_zzz_window, activate_window
 
 GRID_CONFIG_PATH = "config/grid_config.json"
 logger = logging.getLogger("zzz_scanner.test_grid_clicks")
+pydirectinput.PAUSE = 0
 
 
 def main():
@@ -38,7 +39,7 @@ def main():
 
         logger.info("Clicking col=%s at screen position (%s, %s)", col + 1, x, y)
         pydirectinput.moveTo(x, y)
-        time.sleep(0.2)
+        time.sleep(config.get("input_settle_delay", 0.05))
         pydirectinput.click()
         time.sleep(1.2)
 
