@@ -1,17 +1,26 @@
 import json
 import logging
 import os
+import re
 import time
 from time import perf_counter
 
 import pydirectinput
 
-from app_logging import configure_logging
-from capture_window import find_zzz_window, activate_window
-from scan_disc import scan_current_disc
+try:
+    from src.app_logging import configure_logging
+    from src.capture_window import capture_existing_window
+    from src.capture_window import find_zzz_window, activate_window
+    from src.paths import GRID_CONFIG_PATH, OUTPUT_DIR, SCANNED_DISCS_PATH
+    from src.scan_disc import ocr_crop, scan_current_disc
+except ModuleNotFoundError:
+    from app_logging import configure_logging
+    from capture_window import capture_existing_window
+    from capture_window import find_zzz_window, activate_window
+    from paths import GRID_CONFIG_PATH, OUTPUT_DIR, SCANNED_DISCS_PATH
+    from scan_disc import ocr_crop, scan_current_disc
 
-GRID_CONFIG_PATH = "config/grid_config.json"
-OUTPUT_PATH = "output/scanned_discs.json"
+OUTPUT_PATH = SCANNED_DISCS_PATH
 logger = logging.getLogger("zzz_scanner.scan_by_rows")
 pydirectinput.PAUSE = 0
 
@@ -22,7 +31,7 @@ def load_grid_config() -> dict:
 
 
 def load_existing_data() -> list:
-    if not os.path.exists(OUTPUT_PATH):
+    if not OUTPUT_PATH.exists():
         return []
 
     with open(OUTPUT_PATH, "r", encoding="utf-8") as f:
@@ -30,10 +39,69 @@ def load_existing_data() -> list:
 
 
 def save_data(data: list):
-    os.makedirs("output", exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def parse_disc_count(text: str) -> int | None:
+    """
+    Parses an inventory count OCR result.
+
+    For capacity-style text such as "1234/3000", the first number is the
+    owned disc count and the second is inventory capacity.
+    """
+    numbers = re.findall(r"\d+", text or "")
+
+    if not numbers:
+        return None
+
+    return int(numbers[0])
+
+
+def read_total_disc_count(window, config) -> int | None:
+    manual_total = config.get("expected_total_discs")
+
+    if isinstance(manual_total, int) and manual_total > 0:
+        logger.info("Using configured expected_total_discs=%s.", manual_total)
+        return manual_total
+
+    count_roi = config.get("inventory_count_roi")
+
+    if not count_roi:
+        logger.info(
+            "No expected_total_discs or inventory_count_roi configured; using row-compare stop only."
+        )
+        return None
+
+    screenshot = capture_existing_window(window)
+    text, timing = ocr_crop(
+        image=screenshot,
+        roi=count_roi,
+        field_name="disc_count",
+        debug_name="inventory_count_roi",
+    )
+    total = parse_disc_count(text)
+
+    if total is None:
+        logger.warning(
+            "Could not parse total disc count from OCR text %r; using row-compare stop only.",
+            text,
+        )
+        return None
+
+    logger.info(
+        "Detected total disc count: %s from OCR text %r in %.3fs.",
+        total,
+        text,
+        timing.get("total", 0),
+    )
+    return total
+
+
+def reached_total_disc_count(data: list, total_disc_count: int | None) -> bool:
+    return total_disc_count is not None and len(data) >= total_disc_count
 
 
 def make_disc_key(disc: dict) -> str:
@@ -260,6 +328,7 @@ def main():
 
     window = find_zzz_window()
     activate_window(window)
+    total_disc_count = read_total_disc_count(window, config)
 
     initial_scan_rows = config.get("initial_scan_rows", [1, 2, 3])
     scan_after_scroll_row = config.get("scan_after_scroll_row", 3)
@@ -269,6 +338,16 @@ def main():
     logger.info("Initial scan rows: %s", initial_scan_rows)
     logger.info("After each auto-scroll, scan visual row: %s", scan_after_scroll_row)
     logger.info("Max auto-scroll cycles: %s", max_auto_scroll_cycles)
+    if total_disc_count is not None:
+        logger.info(
+            "Count-based stop enabled: current=%s target=%s",
+            len(data),
+            total_disc_count,
+        )
+
+        if reached_total_disc_count(data, total_disc_count):
+            logger.info("Existing output already reached the total disc count. Nothing to scan.")
+            return
 
     # First, commit the initial visible safe rows.
     for row_number in initial_scan_rows:
@@ -285,6 +364,15 @@ def main():
             existing_keys=existing_keys,
             label=f"initial_row_{row_number}",
         )
+
+        if reached_total_disc_count(data, total_disc_count):
+            logger.info(
+                "Reached total disc count after initial row %s: %s/%s. Stopping.",
+                row_number,
+                len(data),
+                total_disc_count,
+            )
+            return
 
     # Now use row comparison:
     # previous_row is not committed immediately.
@@ -335,6 +423,15 @@ def main():
             existing_keys=existing_keys,
             label=f"confirmed_row_{cycle - 1}",
         )
+
+        if reached_total_disc_count(data, total_disc_count):
+            logger.info(
+                "Reached total disc count after cycle %s: %s/%s. Stopping.",
+                cycle,
+                len(data),
+                total_disc_count,
+            )
+            break
 
         previous_row = current_row
 

@@ -9,6 +9,13 @@
   "click_delay": 0.35,
   "input_settle_delay": 0.05,
   "auto_scroll_delay": 0.6,
+  "expected_total_discs": null,
+  "inventory_count_roi": {
+    "x": 230,
+    "y": 112,
+    "w": 96,
+    "h": 24
+  },
 
   "initial_scan_rows": [1, 2, 3],
   "scroll_trigger_row": 4,

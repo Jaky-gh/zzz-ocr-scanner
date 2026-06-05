@@ -9,12 +9,20 @@ import numpy as np
 import pytesseract
 
 from PIL import Image
-from app_logging import configure_logging
-from capture_window import capture_existing_window, capture_window
-from text_parser import build_disc_json
 
-CONFIG_PATH = "config/roi_config.json"
-OUTPUT_PATH = "output/scanned_discs.json"
+try:
+    from src.app_logging import configure_logging
+    from src.capture_window import capture_existing_window, capture_window
+    from src.paths import OUTPUT_DIR, ROI_CONFIG_PATH, SCANNED_DISCS_PATH
+    from src.text_parser import build_disc_json
+except ModuleNotFoundError:
+    from app_logging import configure_logging
+    from capture_window import capture_existing_window, capture_window
+    from paths import OUTPUT_DIR, ROI_CONFIG_PATH, SCANNED_DISCS_PATH
+    from text_parser import build_disc_json
+
+CONFIG_PATH = ROI_CONFIG_PATH
+OUTPUT_PATH = SCANNED_DISCS_PATH
 LOGGER_NAME = "zzz_scanner.scan_disc"
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -24,6 +32,7 @@ FIELD_OCR_CONFIG = {
     "main_stat": "--psm 7",
     "level": "--psm 7 -c tessedit_char_whitelist=Lv.0123456789/",
     "substats": "--psm 6",
+    "disc_count": "--psm 7 -c tessedit_char_whitelist=0123456789/",
 }
 DEFAULT_OCR_WORKERS = 4
 
@@ -31,12 +40,22 @@ DEFAULT_OCR_WORKERS = 4
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
-def preprocess_for_ocr(pil_image: Image.Image) -> Image.Image:
+def preprocess_for_ocr(pil_image: Image.Image, field_name: str | None = None) -> Image.Image:
     img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2GRAY)
 
     img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
-    _, img = cv2.threshold(img, 150, 255, cv2.THRESH_BINARY)
+    if field_name == "disc_count":
+        img = cv2.adaptiveThreshold(
+            img,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,
+            5,
+        )
+    else:
+        _, img = cv2.threshold(img, 150, 255, cv2.THRESH_BINARY)
 
     return Image.fromarray(img)
 
@@ -45,14 +64,20 @@ def ocr_crop(
     image: Image.Image,
     roi: dict,
     field_name: str | None = None,
+    debug_name: str | None = None,
 ) -> tuple[str, dict]:
     started_at = perf_counter()
     x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
     crop = image.crop((x, y, x + w, y + h))
 
     preprocess_started_at = perf_counter()
-    processed = preprocess_for_ocr(crop)
+    processed = preprocess_for_ocr(crop, field_name=field_name)
     preprocess_elapsed = perf_counter() - preprocess_started_at
+
+    if debug_name:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        crop.save(OUTPUT_DIR / f"{debug_name}_raw.png")
+        processed.save(OUTPUT_DIR / f"{debug_name}_processed.png")
 
     ocr_started_at = perf_counter()
     text = pytesseract.image_to_string(
@@ -70,7 +95,7 @@ def ocr_crop(
 
 @lru_cache(maxsize=1)
 def load_rois() -> dict:
-    if not os.path.exists(CONFIG_PATH):
+    if not CONFIG_PATH.exists():
         raise RuntimeError("Missing roi_config.json. Run calibrate_rois.py first.")
 
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -142,9 +167,9 @@ def run_ocr_fields(image: Image.Image, rois: dict) -> tuple[dict, dict]:
 
 
 def append_disc_to_output(disc: dict):
-    os.makedirs("output", exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    if os.path.exists(OUTPUT_PATH):
+    if OUTPUT_PATH.exists():
         with open(OUTPUT_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
     else:
