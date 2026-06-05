@@ -96,6 +96,8 @@ def format_scan_timing(timings: dict) -> str:
     field_summary = ", ".join(field_parts)
 
     return (
+        f"ocr_mode={timings.get('mode', 'unknown')} "
+        f"workers={timings.get('workers', 0)} "
         f"capture={timings.get('capture', 0):.3f}s "
         f"ocr={timings.get('ocr_total', 0):.3f}s "
         f"parse={timings.get('parse', 0):.3f}s "
