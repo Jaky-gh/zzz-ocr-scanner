@@ -1,28 +1,34 @@
 import json
+import logging
 import time
-import pyautogui
 
-from capture_window import find_zzz_window, activate_window
+import pydirectinput
+
+from src.app_logging import configure_logging
+from src.capture_window import find_zzz_window, activate_window
+
 
 OUTPUT_PATH = "config/grid_config.json"
+logger = logging.getLogger("zzz_scanner.calibrate_grid")
 
 
 def ask_point(label: str):
     input(f"\nMove your mouse to the CENTER of {label}, then press ENTER here...")
-    x, y = pyautogui.position()
-    print(f"{label}: screen position = ({x}, {y})")
+    x, y = pydirectinput.position()
+    logger.info("%s: screen position = (%s, %s)", label, x, y)
     return x, y
 
 
 def main():
+    configure_logging()
     window = find_zzz_window()
     activate_window(window)
 
-    print("We will record 3 positions:")
-    print("1. First disc, row 1 col 1")
-    print("2. Second disc, row 1 col 2")
-    print("3. First disc, row 2 col 1")
-    print("\nUse the CENTER of the disc card, not the level text.")
+    logger.info("We will record 3 positions:")
+    logger.info("1. First disc, row 1 col 1")
+    logger.info("2. Second disc, row 1 col 2")
+    logger.info("3. First disc, row 2 col 1")
+    logger.info("Use the CENTER of the disc card, not the level text.")
 
     time.sleep(1)
 
@@ -53,8 +59,7 @@ def main():
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
 
-    print("\nSaved grid config:")
-    print(json.dumps(config, indent=2))
+    logger.info("Saved grid config:\n%s", json.dumps(config, indent=2))
 
 
 if __name__ == "__main__":

@@ -1,7 +1,10 @@
+import logging
 import time
+
 import mss
 import pygetwindow as gw
 from PIL import Image
+from app_logging import configure_logging
 
 
 ZZZ_TITLE_KEYWORDS = [
@@ -9,6 +12,7 @@ ZZZ_TITLE_KEYWORDS = [
     "Zenless Zone Zero",
     "ZenlessZoneZero",
 ]
+logger = logging.getLogger("zzz_scanner.capture_window")
 
 
 def find_zzz_window():
@@ -30,10 +34,10 @@ def find_zzz_window():
                 if window.width > 0 and window.height > 0:
                     return window
 
-    print("Available windows:")
+    logger.error("Available windows:")
     for w in windows:
         if w.title.strip():
-            print(repr(w.title))
+            logger.error("%r", w.title)
 
     raise RuntimeError("Could not find the ZZZ window.")
 
@@ -47,14 +51,16 @@ def activate_window(window):
         window.activate()
         time.sleep(1)
     except Exception as e:
-        print(f"Could not activate window normally: {e}")
-        print("Try running PyCharm/terminal as Administrator, or use borderless/windowed mode.")
+        logger.warning("Could not activate window normally: %s", e)
+        logger.warning(
+            "Try running PyCharm/terminal as Administrator, or use borderless/windowed mode."
+        )
 
 
 def capture_zzz_window() -> Image.Image:
     window = find_zzz_window()
 
-    print(f"Found ZZZ window: {window.title!r}")
+    logger.info("Found ZZZ window: %r", window.title)
 
     activate_window(window)
 
@@ -84,6 +90,7 @@ def capture_window(title_keyword: str = "Zenless") -> Image.Image:
 
 
 if __name__ == "__main__":
+    configure_logging()
     img = capture_zzz_window()
     img.save("output/window_capture.png")
-    print("Saved screenshot to output/window_capture.png")
+    logger.info("Saved screenshot to output/window_capture.png")

@@ -1,21 +1,25 @@
 import json
+import logging
 import os
 import cv2
+import numpy as np
 import pytesseract
-from PIL import Image
 
+from PIL import Image
+from app_logging import configure_logging
 from capture_window import capture_window
 from text_parser import build_disc_json
 
 CONFIG_PATH = "config/roi_config.json"
 OUTPUT_PATH = "output/scanned_discs.json"
+LOGGER_NAME = "zzz_scanner.scan_disc"
 
 # Update this if your Tesseract path is different.
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
 def preprocess_for_ocr(pil_image: Image.Image) -> Image.Image:
-    img = cv2.cvtColor(cv2.imread("temp_crop.png"), cv2.COLOR_BGR2GRAY)
+    img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2GRAY)
 
     img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
@@ -27,8 +31,6 @@ def preprocess_for_ocr(pil_image: Image.Image) -> Image.Image:
 def ocr_crop(image: Image.Image, roi: dict) -> str:
     x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
     crop = image.crop((x, y, x + w, y + h))
-
-    crop.save("temp_crop.png")
 
     processed = preprocess_for_ocr(crop)
 
@@ -63,24 +65,6 @@ def append_disc_to_output(disc: dict):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def main():
-    rois = load_rois()
-    screenshot = capture_window("Zenless")
-
-    ocr_results = {}
-
-    for field_name, roi in rois.items():
-        text = ocr_crop(screenshot, roi)
-        ocr_results[field_name] = text
-
-    disc_json = build_disc_json(ocr_results)
-
-    append_disc_to_output(disc_json)
-
-    print(json.dumps(disc_json, indent=2, ensure_ascii=False))
-    print(f"\nSaved to {OUTPUT_PATH}")
-
-
 def scan_current_disc() -> dict:
     rois = load_rois()
     screenshot = capture_window("Zenless")
@@ -95,10 +79,17 @@ def scan_current_disc() -> dict:
 
 
 def main():
+    configure_logging()
+
+    logger = logging.getLogger(LOGGER_NAME)
     disc_json = scan_current_disc()
 
     append_disc_to_output(disc_json)
 
-    print(json.dumps(disc_json, indent=2, ensure_ascii=False))
-    print(f"\nSaved to {OUTPUT_PATH}")
+    logger.info("Scanned disc:\n%s", json.dumps(disc_json, indent=2, ensure_ascii=False))
+    logger.info("Saved to %s", OUTPUT_PATH)
+
+
+if __name__ == "__main__":
+    main()
 

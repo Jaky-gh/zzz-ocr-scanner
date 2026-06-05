@@ -3,3 +3,5 @@ mss
 pytesseract
 pygetwindow
 pillow
+pydirectinput
+numpy

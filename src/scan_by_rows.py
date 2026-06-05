@@ -1,13 +1,17 @@
 import json
+import logging
 import os
 import time
+
 import pydirectinput
 
+from app_logging import configure_logging
 from capture_window import find_zzz_window, activate_window
 from scan_disc import scan_current_disc
 
 GRID_CONFIG_PATH = "config/grid_config.json"
 OUTPUT_PATH = "output/scanned_discs.json"
+logger = logging.getLogger("zzz_scanner.scan_by_rows")
 
 
 def load_grid_config() -> dict:
@@ -91,10 +95,10 @@ def scan_row_to_memory(window, config, row_number: int, label: str) -> list[dict
 
     row_discs = []
 
-    print(f"\n--- Scanning row to memory: {label}, visual row {row_number} ---")
+    logger.info("Scanning row to memory: %s, visual row %s", label, row_number)
 
     for col_number in range(1, columns + 1):
-        print(f"Clicking row={row_number}, col={col_number}")
+        logger.info("Clicking row=%s, col=%s", row_number, col_number)
 
         click_grid_position(
             window=window,
@@ -114,10 +118,11 @@ def scan_row_to_memory(window, config, row_number: int, label: str) -> list[dict
 
         row_discs.append(disc)
 
-        print(
-            f"Read: {disc.get('disc_name')} | "
-            f"slot={disc.get('slot')} | "
-            f"level={disc.get('level')}"
+        logger.info(
+            "Read: %s | slot=%s | level=%s",
+            disc.get("disc_name"),
+            disc.get("slot"),
+            disc.get("level"),
         )
 
     return row_discs
@@ -129,13 +134,13 @@ def commit_row(row_discs: list[dict], data: list, existing_keys: set, label: str
     """
     added_count = 0
 
-    print(f"\nCommitting row: {label}")
+    logger.info("Committing row: %s", label)
 
     for disc in row_discs:
         key = make_disc_key(disc)
 
         if key in existing_keys:
-            print("Duplicate disc detected during commit, skipping.")
+            logger.info("Duplicate disc detected during commit, skipping.")
             continue
 
         existing_keys.add(key)
@@ -144,16 +149,17 @@ def commit_row(row_discs: list[dict], data: list, existing_keys: set, label: str
         data.append(disc)
         added_count += 1
 
-        print(
-            f"Saved #{disc['scan_index']}: "
-            f"{disc.get('disc_name')} | "
-            f"slot={disc.get('slot')} | "
-            f"level={disc.get('level')}"
+        logger.info(
+            "Saved #%s: %s | slot=%s | level=%s",
+            disc["scan_index"],
+            disc.get("disc_name"),
+            disc.get("slot"),
+            disc.get("level"),
         )
 
     save_data(data)
 
-    print(f"Committed {added_count} new discs.")
+    logger.info("Committed %s new discs.", added_count)
     return added_count
 
 
@@ -166,7 +172,11 @@ def trigger_game_scroll(window, config):
     trigger_col = config.get("scroll_trigger_col", 1)
     scroll_delay = config.get("auto_scroll_delay", 1.0)
 
-    print(f"\nTriggering auto-scroll by clicking row={trigger_row}, col={trigger_col}")
+    logger.info(
+        "Triggering auto-scroll by clicking row=%s, col=%s",
+        trigger_row,
+        trigger_col,
+    )
 
     click_grid_position(
         window=window,
@@ -179,6 +189,7 @@ def trigger_game_scroll(window, config):
 
 
 def main():
+    configure_logging()
     config = load_grid_config()
     data = load_existing_data()
     existing_keys = {make_disc_key(disc) for disc in data}
@@ -190,10 +201,10 @@ def main():
     scan_after_scroll_row = config.get("scan_after_scroll_row", 3)
     max_auto_scroll_cycles = config.get("max_auto_scroll_cycles", 300)
 
-    print("Starting row-compare auto-stop scan.")
-    print(f"Initial scan rows: {initial_scan_rows}")
-    print(f"After each auto-scroll, scan visual row: {scan_after_scroll_row}")
-    print(f"Max auto-scroll cycles: {max_auto_scroll_cycles}")
+    logger.info("Starting row-compare auto-stop scan.")
+    logger.info("Initial scan rows: %s", initial_scan_rows)
+    logger.info("After each auto-scroll, scan visual row: %s", scan_after_scroll_row)
+    logger.info("Max auto-scroll cycles: %s", max_auto_scroll_cycles)
 
     # First, commit the initial visible safe rows.
     for row_number in initial_scan_rows:
@@ -224,7 +235,7 @@ def main():
     )
 
     for cycle in range(2, max_auto_scroll_cycles + 1):
-        print(f"\n=== Row-compare cycle {cycle}/{max_auto_scroll_cycles} ===")
+        logger.info("Row-compare cycle %s/%s", cycle, max_auto_scroll_cycles)
 
         trigger_game_scroll(window, config)
 
@@ -239,8 +250,8 @@ def main():
         current_key = make_row_key(current_row)
 
         if current_key == previous_key:
-            print("\nCurrent row is the same as previous row.")
-            print("Reached the end. Committing previous row once, then stopping.")
+            logger.info("Current row is the same as previous row.")
+            logger.info("Reached the end. Committing previous row once, then stopping.")
 
             commit_row(
                 row_discs=previous_row,
@@ -251,8 +262,8 @@ def main():
 
             break
 
-        print("\nCurrent row is different from previous row.")
-        print("Committing previous row and continuing.")
+        logger.info("Current row is different from previous row.")
+        logger.info("Committing previous row and continuing.")
 
         commit_row(
             row_discs=previous_row,
@@ -264,8 +275,8 @@ def main():
         previous_row = current_row
 
     else:
-        print("\nReached max_auto_scroll_cycles.")
-        print("Committing last buffered row before stopping.")
+        logger.info("Reached max_auto_scroll_cycles.")
+        logger.info("Committing last buffered row before stopping.")
 
         commit_row(
             row_discs=previous_row,
@@ -274,7 +285,7 @@ def main():
             label="last_buffered_row",
         )
 
-    print(f"\nDone. Saved {len(data)} unique discs to {OUTPUT_PATH}")
+    logger.info("Done. Saved %s unique discs to %s", len(data), OUTPUT_PATH)
 
 
 if __name__ == "__main__":
