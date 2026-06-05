@@ -44,6 +44,22 @@ def load_grid_config() -> dict:
         return json.load(f)
 
 
+def load_existing_rois() -> dict:
+    if not CONFIG_PATH.exists():
+        return {}
+
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_roi_preview(img, name: str, roi: dict):
+    x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+    crop = img[y : y + h, x : x + w]
+    preview_path = OUTPUT_DIR / f"calibrated_{name}.png"
+    cv2.imwrite(str(preview_path), crop)
+    logger.info("Saved %s preview to %s", name, preview_path)
+
+
 def save_inventory_count_roi(roi: dict):
     config = load_grid_config()
     config["inventory_count_roi"] = roi
@@ -65,15 +81,23 @@ def main():
 
     img = cv2.imread(image_path)
 
-    rois = {}
+    rois = load_existing_rois()
+    selected_count = 0
 
     logger.info("Draw each ROI, then press ENTER/SPACE. Press C to cancel current selection.")
+    logger.info("Skipped fields keep their existing ROI values.")
 
     for name in ROI_NAMES:
         roi = select_roi(img, name)
 
         if roi:
             rois[name] = roi
+            selected_count += 1
+            save_roi_preview(img, name, roi)
+
+    if selected_count == 0:
+        logger.info("No ROI was selected. Existing ROI config was left unchanged.")
+        return
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(rois, f, indent=2)
