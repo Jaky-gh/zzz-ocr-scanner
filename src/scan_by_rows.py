@@ -207,6 +207,40 @@ def click_grid_position(window, config, row_number: int, col_number: int):
     return x, y
 
 
+def get_row_crop_bounds(config: dict, row_number: int) -> tuple[int, int, int, int]:
+    columns = config["columns"]
+    first_x = config["first_x"]
+    first_y = config["first_y"]
+    x_step = config["x_step"]
+    y_step = config["y_step"]
+
+    row_index = row_number - 1
+    left = max(0, first_x - x_step // 2)
+    top = max(0, first_y + row_index * y_step - y_step // 2)
+    right = first_x + (columns - 1) * x_step + x_step // 2
+    bottom = first_y + row_index * y_step + y_step // 2
+
+    return left, top, right, bottom
+
+
+def make_row_visual_key(window, config: dict, row_number: int) -> tuple[int, ...]:
+    screenshot = capture_existing_window(window)
+    bounds = get_row_crop_bounds(config, row_number)
+    crop = screenshot.crop(bounds).convert("L").resize((96, 16))
+    pixels = list(crop.getdata())
+    average = sum(pixels) / len(pixels)
+    return tuple(1 if pixel >= average else 0 for pixel in pixels)
+
+
+def row_visual_distance(left_key: tuple[int, ...], right_key: tuple[int, ...]) -> int:
+    return sum(left_bit != right_bit for left_bit, right_bit in zip(left_key, right_key))
+
+
+def is_same_visual_row(left_key: tuple[int, ...], right_key: tuple[int, ...], config: dict) -> bool:
+    threshold = config.get("row_visual_compare_threshold", 24)
+    return row_visual_distance(left_key, right_key) <= threshold
+
+
 def format_scan_timing(timings: dict) -> str:
     fields = timings.get("fields", {})
     field_parts = [
@@ -453,6 +487,7 @@ def main():
     # previous_row is not committed immediately.
     # We only commit it after confirming the next row is different.
     trigger_game_scroll(window, config)
+    previous_visual_key = make_row_visual_key(window, config, scan_after_scroll_row)
 
     previous_row = scan_row_to_memory(
         window=window,
@@ -465,6 +500,51 @@ def main():
         logger.info("Row-compare cycle %s/%s", cycle, max_auto_scroll_cycles)
 
         trigger_game_scroll(window, config)
+        current_visual_key = make_row_visual_key(window, config, scan_after_scroll_row)
+        visual_distance = row_visual_distance(previous_visual_key, current_visual_key)
+        logger.info(
+            "Visual row %s compare distance after scroll: %s",
+            scan_after_scroll_row,
+            visual_distance,
+        )
+
+        if is_same_visual_row(previous_visual_key, current_visual_key, config):
+            logger.info(
+                "Visual row %s did not change after scroll; reached the end.",
+                scan_after_scroll_row,
+            )
+            logger.info("Committing previous row, scanning the final visible row, then stopping.")
+
+            commit_row(
+                row_discs=previous_row,
+                data=data,
+                existing_keys=existing_keys,
+                label="final_previous_row",
+            )
+
+            if reached_total_disc_count(data, total_disc_count):
+                logger.info(
+                    "Reached total disc count before final visible row scan: %s/%s. Stopping.",
+                    len(data),
+                    total_disc_count,
+                )
+                break
+
+            final_row_number = config.get("final_scan_row", config.get("scroll_trigger_row", 4))
+            final_row = scan_row_to_memory(
+                window=window,
+                config=config,
+                row_number=final_row_number,
+                label="final_visible_row",
+            )
+            commit_row(
+                row_discs=final_row,
+                data=data,
+                existing_keys=existing_keys,
+                label="final_visible_row",
+            )
+
+            break
 
         current_row = scan_row_to_memory(
             window=window,
@@ -478,13 +558,37 @@ def main():
 
         if current_key == previous_key:
             logger.info("Current row is the same as previous row.")
-            logger.info("Reached the end. Committing previous row once, then stopping.")
+            logger.info(
+                "Reached the end. Committing previous row, scanning the final visible row, then stopping."
+            )
 
             commit_row(
                 row_discs=previous_row,
                 data=data,
                 existing_keys=existing_keys,
                 label="final_previous_row",
+            )
+
+            if reached_total_disc_count(data, total_disc_count):
+                logger.info(
+                    "Reached total disc count before final visible row scan: %s/%s. Stopping.",
+                    len(data),
+                    total_disc_count,
+                )
+                break
+
+            final_row_number = config.get("final_scan_row", config.get("scroll_trigger_row", 4))
+            final_row = scan_row_to_memory(
+                window=window,
+                config=config,
+                row_number=final_row_number,
+                label="final_visible_row",
+            )
+            commit_row(
+                row_discs=final_row,
+                data=data,
+                existing_keys=existing_keys,
+                label="final_visible_row",
             )
 
             break
@@ -509,6 +613,7 @@ def main():
             break
 
         previous_row = current_row
+        previous_visual_key = current_visual_key
 
     else:
         logger.info("Reached max_auto_scroll_cycles.")

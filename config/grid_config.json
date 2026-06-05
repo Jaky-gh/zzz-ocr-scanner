@@ -24,5 +24,6 @@
   "scroll_trigger_row": 4,
   "scroll_trigger_col": 1,
   "scan_after_scroll_row": 3,
+  "row_visual_compare_threshold": 24,
   "max_auto_scroll_cycles": 400
 }
