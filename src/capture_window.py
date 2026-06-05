@@ -4,7 +4,13 @@ import time
 import mss
 import pygetwindow as gw
 from PIL import Image
-from app_logging import configure_logging
+
+try:
+    from src.app_logging import configure_logging
+    from src.paths import OUTPUT_DIR
+except ModuleNotFoundError:
+    from app_logging import configure_logging
+    from paths import OUTPUT_DIR
 
 
 ZZZ_TITLE_KEYWORDS = [
@@ -95,5 +101,7 @@ def capture_window(title_keyword: str = "Zenless") -> Image.Image:
 if __name__ == "__main__":
     configure_logging()
     img = capture_zzz_window()
-    img.save("output/window_capture.png")
-    logger.info("Saved screenshot to output/window_capture.png")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    image_path = OUTPUT_DIR / "window_capture.png"
+    img.save(image_path)
+    logger.info("Saved screenshot to %s", image_path)

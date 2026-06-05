@@ -2,8 +2,13 @@ import logging
 import os
 from pathlib import Path
 
+try:
+    from src.paths import SCANNER_LOG_PATH
+except ModuleNotFoundError:
+    from paths import SCANNER_LOG_PATH
 
-DEFAULT_LOG_PATH = Path("output") / "scanner.log"
+
+DEFAULT_LOG_PATH = SCANNER_LOG_PATH
 
 
 def configure_logging(

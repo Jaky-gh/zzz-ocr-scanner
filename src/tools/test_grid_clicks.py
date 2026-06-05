@@ -6,9 +6,9 @@ import pydirectinput
 
 from src.app_logging import configure_logging
 from src.capture_window import find_zzz_window, activate_window
+from src.paths import GRID_CONFIG_PATH
 
 
-GRID_CONFIG_PATH = "config/grid_config.json"
 logger = logging.getLogger("zzz_scanner.test_grid_clicks")
 pydirectinput.PAUSE = 0
 

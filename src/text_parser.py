@@ -1,14 +1,15 @@
 import json
-import os
 import re
 from difflib import get_close_matches
 
-
-DRIVE_DISC_NAMES_PATH = "config/drive_disc_names.json"
+try:
+    from src.paths import DRIVE_DISC_NAMES_PATH
+except ModuleNotFoundError:
+    from paths import DRIVE_DISC_NAMES_PATH
 
 
 def load_drive_disc_names() -> list[str]:
-    if not os.path.exists(DRIVE_DISC_NAMES_PATH):
+    if not DRIVE_DISC_NAMES_PATH.exists():
         raise RuntimeError(
             f"Missing {DRIVE_DISC_NAMES_PATH}. "
             "Create it with the list of valid Drive Disc names."

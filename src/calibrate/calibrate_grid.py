@@ -6,9 +6,10 @@ import pydirectinput
 
 from src.app_logging import configure_logging
 from src.capture_window import find_zzz_window, activate_window
+from src.paths import GRID_CONFIG_PATH
 
 
-OUTPUT_PATH = "config/grid_config.json"
+OUTPUT_PATH = GRID_CONFIG_PATH
 logger = logging.getLogger("zzz_scanner.calibrate_grid")
 
 
@@ -55,6 +56,8 @@ def main():
         "scroll_amount": -5,
         "page_delay": 0.7
     }
+
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
