@@ -2,10 +2,7 @@ import json
 import re
 from difflib import get_close_matches
 
-try:
-    from src.paths import DRIVE_DISC_NAMES_PATH
-except ModuleNotFoundError:
-    from paths import DRIVE_DISC_NAMES_PATH
+from src.paths import DRIVE_DISC_NAMES_PATH
 
 
 def load_drive_disc_names() -> list[str]:
@@ -57,7 +54,27 @@ def extract_slot_from_disc_text(text: str) -> int | None:
     """
     text = normalize_spaces(text)
 
-    digits = re.findall(r"\d", text)
+    normalized_text = "".join(
+        {
+            "\u00a7": "5",
+            "S": "5",
+            "s": "5",
+            "§": "5",
+            "O": "0",
+            "o": "0",
+            "I": "1",
+            "l": "1",
+            "|": "1",
+        }.get(char, char)
+        for char in text
+    )
+
+    bracket_match = re.search(r"[\[\(]?\s*([1-6])\s*[\]\)]?\s*$", normalized_text)
+
+    if bracket_match:
+        return int(bracket_match.group(1))
+
+    digits = re.findall(r"\d", normalized_text)
 
     if not digits:
         return None
@@ -143,6 +160,29 @@ def parse_disc_name_and_slot(text: str) -> tuple[str, int | None]:
     return disc_name, slot
 
 
+def infer_slot_from_main_stat(main_stat: dict | None) -> int | None:
+    if not main_stat:
+        return None
+
+    stat = main_stat.get("stat")
+
+    unique_slot_stats = {
+        "CRIT Rate": 4,
+        "CRIT DMG": 4,
+        "Anomaly Proficiency": 4,
+        "Physical DMG Bonus": 5,
+        "Fire DMG Bonus": 5,
+        "Ice DMG Bonus": 5,
+        "Electric DMG Bonus": 5,
+        "Ether DMG Bonus": 5,
+        "PEN Ratio": 5,
+        "Anomaly Mastery": 6,
+        "Energy Regen": 6,
+    }
+
+    return unique_slot_stats.get(stat)
+
+
 def parse_level(text: str) -> int | None:
     text = clean_text(text)
 
@@ -198,6 +238,34 @@ def normalize_stat_name(stat_name: str) -> str:
     return stat_name
 
 
+def normalize_ocr_number_token(token: str) -> str | None:
+    token = normalize_spaces(token)
+
+    if not token:
+        return None
+
+    replacements = {
+        "\u00a7": "5",
+        "§": "5",
+        "S": "5",
+        "s": "5",
+        "O": "0",
+        "o": "0",
+        "I": "1",
+        "l": "1",
+        "|": "1",
+    }
+
+    token = "".join(replacements.get(char, char) for char in token)
+    token = re.sub(r"[^0-9.,%]", "", token)
+    token = token.replace(",", "")
+
+    if not re.search(r"\d", token):
+        return None
+
+    return token
+
+
 def parse_main_stat(text: str) -> dict | None:
     text = normalize_spaces(text)
 
@@ -239,21 +307,43 @@ def parse_substat_line(line: str) -> dict | None:
     # ATK +2 9%
     # HP 3%
     match = re.search(
-        r"(.+?)(?:\s+\+(\d+))?\s+([\d,]+(?:\.\d+)?%?)$",
+        r"(.+?)(?:\s+\+(\d+))?\s+([^\s]+)$",
         line,
     )
 
     if not match:
+        parts = line.rsplit(" ", 1)
+
+        if len(parts) == 2:
+            stat_text, value_text = parts
+            value = normalize_ocr_number_token(value_text)
+
+            if value is not None:
+                return {
+                    "stat": normalize_stat_name(stat_text),
+                    "upgrade_count": 0,
+                    "value": value,
+                    "raw": line,
+                }
+
         return {
             "stat": normalize_stat_name(line),
-            "upgrade_count": None,
+            "upgrade_count": 0,
             "value": None,
             "raw": line,
         }
 
     stat_name = normalize_stat_name(match.group(1))
     upgrade_count = int(match.group(2)) if match.group(2) else 0
-    value = match.group(3).replace(",", "")
+    value = normalize_ocr_number_token(match.group(3))
+
+    if value is None:
+        return {
+            "stat": stat_name,
+            "upgrade_count": upgrade_count,
+            "value": None,
+            "raw": line,
+        }
 
     return {
         "stat": stat_name,
@@ -287,11 +377,15 @@ def build_disc_json(ocr_results: dict) -> dict:
     disc_name, slot = parse_disc_name_and_slot(
         ocr_results.get("disc_name", "")
     )
+    main_stat = parse_main_stat(ocr_results.get("main_stat", ""))
+
+    if slot is None:
+        slot = infer_slot_from_main_stat(main_stat)
 
     return {
         "disc_name": disc_name,
         "slot": slot,
-        "main_stat": parse_main_stat(ocr_results.get("main_stat", "")),
+        "main_stat": main_stat,
         "level": parse_level(ocr_results.get("level", "")),
         "substats": parse_substats(ocr_results.get("substats", "")),
         "raw_ocr": ocr_results,

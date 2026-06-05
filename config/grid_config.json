@@ -5,22 +5,24 @@
   "first_y": 208,
   "x_step": 89,
   "y_step": 117,
-
   "click_delay": 0.35,
   "input_settle_delay": 0.05,
   "auto_scroll_delay": 0.6,
   "expected_total_discs": null,
+  "stop_on_unknown_disc_name": true,
   "inventory_count_roi": {
-    "x": 230,
-    "y": 112,
-    "w": 96,
-    "h": 24
+    "x": 211,
+    "y": 81,
+    "w": 114,
+    "h": 23
   },
-
-  "initial_scan_rows": [1, 2, 3],
+  "initial_scan_rows": [
+    1,
+    2,
+    3
+  ],
   "scroll_trigger_row": 4,
   "scroll_trigger_col": 1,
   "scan_after_scroll_row": 3,
-
   "max_auto_scroll_cycles": 400
 }

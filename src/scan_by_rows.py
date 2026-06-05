@@ -3,22 +3,17 @@ import logging
 import os
 import re
 import time
+from functools import lru_cache
 from time import perf_counter
 
 import pydirectinput
 
-try:
-    from src.app_logging import configure_logging
-    from src.capture_window import capture_existing_window
-    from src.capture_window import find_zzz_window, activate_window
-    from src.paths import GRID_CONFIG_PATH, OUTPUT_DIR, SCANNED_DISCS_PATH
-    from src.scan_disc import ocr_crop, scan_current_disc
-except ModuleNotFoundError:
-    from app_logging import configure_logging
-    from capture_window import capture_existing_window
-    from capture_window import find_zzz_window, activate_window
-    from paths import GRID_CONFIG_PATH, OUTPUT_DIR, SCANNED_DISCS_PATH
-    from scan_disc import ocr_crop, scan_current_disc
+from src.app_logging import configure_logging
+from src.capture_window import capture_existing_window
+from src.capture_window import find_zzz_window, activate_window
+from src.paths import GRID_CONFIG_PATH, OUTPUT_DIR, SCANNED_DISCS_PATH
+from src.scan_disc import load_rois, ocr_crop, scan_current_disc
+from src.text_parser import load_drive_disc_names
 
 OUTPUT_PATH = SCANNED_DISCS_PATH
 logger = logging.getLogger("zzz_scanner.scan_by_rows")
@@ -104,6 +99,63 @@ def reached_total_disc_count(data: list, total_disc_count: int | None) -> bool:
     return total_disc_count is not None and len(data) >= total_disc_count
 
 
+@lru_cache(maxsize=1)
+def valid_drive_disc_names() -> frozenset[str]:
+    return frozenset(load_drive_disc_names())
+
+
+def is_known_disc_name(disc: dict) -> bool:
+    return disc.get("disc_name") in valid_drive_disc_names()
+
+
+def save_unknown_disc_debug_crops(window, row_number: int, col_number: int, label: str):
+    screenshot = capture_existing_window(window)
+    safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", label)
+    debug_prefix = f"unknown_disc_{safe_label}_r{row_number}_c{col_number}"
+
+    for field_name, roi in load_rois().items():
+        debug_name = f"{debug_prefix}_{field_name}"
+        text, timing = ocr_crop(
+            image=screenshot,
+            roi=roi,
+            field_name=field_name,
+            debug_name=debug_name,
+        )
+        logger.error(
+            "Unknown-disc debug OCR field=%s text=%r elapsed=%.3fs files=%s_raw.png/%s_processed.png",
+            field_name,
+            text,
+            timing.get("total", 0),
+            debug_name,
+            debug_name,
+        )
+
+
+def validate_known_disc_name(disc: dict, row_number: int, col_number: int, label: str):
+    if is_known_disc_name(disc):
+        return
+
+    disc_name = disc.get("disc_name")
+    raw_ocr = disc.get("raw_ocr", {})
+    raw_name = raw_ocr.get("disc_name", "")
+
+    logger.error(
+        "Stopping scan: could not resolve a known Drive Disc set name at row=%s col=%s label=%s. "
+        "parsed_name=%r raw_disc_name_ocr=%r raw_ocr=%s",
+        row_number,
+        col_number,
+        label,
+        disc_name,
+        raw_name,
+        json.dumps(raw_ocr, ensure_ascii=False),
+    )
+
+    raise RuntimeError(
+        "Could not resolve a known Drive Disc set name. "
+        f"row={row_number} col={col_number} label={label} raw_disc_name_ocr={raw_name!r}"
+    )
+
+
 def make_disc_key(disc: dict) -> str:
     return json.dumps(
         {
@@ -158,7 +210,14 @@ def click_grid_position(window, config, row_number: int, col_number: int):
 def format_scan_timing(timings: dict) -> str:
     fields = timings.get("fields", {})
     field_parts = [
-        f"{field_name}={field_timing.get('total', 0):.3f}s"
+        (
+            f"{field_name}={field_timing.get('total', 0):.3f}s"
+            + (
+                f":{field_timing.get('variant')}"
+                if field_timing.get("variant")
+                else ""
+            )
+        )
         for field_name, field_timing in fields.items()
     ]
     field_summary = ", ".join(field_parts)
@@ -228,6 +287,22 @@ def scan_row_to_memory(window, config, row_number: int, label: str) -> list[dict
         disc["visual_row"] = row_number
         disc["visual_col"] = col_number
         disc["scan_label"] = label
+
+        if config.get("stop_on_unknown_disc_name", True):
+            if not is_known_disc_name(disc):
+                save_unknown_disc_debug_crops(
+                    window=window,
+                    row_number=row_number,
+                    col_number=col_number,
+                    label=label,
+                )
+
+            validate_known_disc_name(
+                disc=disc,
+                row_number=row_number,
+                col_number=col_number,
+                label=label,
+            )
 
         row_discs.append(disc)
 

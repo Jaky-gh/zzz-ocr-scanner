@@ -10,16 +10,10 @@ import pytesseract
 
 from PIL import Image
 
-try:
-    from src.app_logging import configure_logging
-    from src.capture_window import capture_existing_window, capture_window
-    from src.paths import OUTPUT_DIR, ROI_CONFIG_PATH, SCANNED_DISCS_PATH
-    from src.text_parser import build_disc_json
-except ModuleNotFoundError:
-    from app_logging import configure_logging
-    from capture_window import capture_existing_window, capture_window
-    from paths import OUTPUT_DIR, ROI_CONFIG_PATH, SCANNED_DISCS_PATH
-    from text_parser import build_disc_json
+from src.app_logging import configure_logging
+from src.capture_window import capture_existing_window, capture_window
+from src.paths import OUTPUT_DIR, ROI_CONFIG_PATH, SCANNED_DISCS_PATH
+from src.text_parser import build_disc_json, load_drive_disc_names, normalize_disc_name
 
 CONFIG_PATH = ROI_CONFIG_PATH
 OUTPUT_PATH = SCANNED_DISCS_PATH
@@ -28,7 +22,7 @@ logger = logging.getLogger(LOGGER_NAME)
 
 DEFAULT_OCR_CONFIG = "--psm 6"
 FIELD_OCR_CONFIG = {
-    "disc_name": "--psm 7",
+    "disc_name": "--psm 6",
     "main_stat": "--psm 7",
     "level": "--psm 7 -c tessedit_char_whitelist=Lv.0123456789/",
     "substats": "--psm 6",
@@ -40,10 +34,13 @@ DEFAULT_OCR_WORKERS = 4
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
-def preprocess_for_ocr(pil_image: Image.Image, field_name: str | None = None) -> Image.Image:
+def grayscale_upscale(pil_image: Image.Image, scale: int = 2):
     img = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2GRAY)
+    return cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
-    img = cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+
+def preprocess_for_ocr(pil_image: Image.Image, field_name: str | None = None) -> Image.Image:
+    img = grayscale_upscale(pil_image)
 
     if field_name == "disc_count":
         img = cv2.adaptiveThreshold(
@@ -60,6 +57,76 @@ def preprocess_for_ocr(pil_image: Image.Image, field_name: str | None = None) ->
     return Image.fromarray(img)
 
 
+def preprocess_disc_name_variants(pil_image: Image.Image) -> list[tuple[str, Image.Image]]:
+    gray = grayscale_upscale(pil_image, scale=3)
+    variants = [("gray", Image.fromarray(gray))]
+
+    _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+    variants.append(("binary", Image.fromarray(binary)))
+
+    adaptive = cv2.adaptiveThreshold(
+        gray,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        3,
+    )
+    variants.append(("adaptive", Image.fromarray(adaptive)))
+
+    return variants
+
+
+def ocr_image(processed: Image.Image, field_name: str | None = None) -> str:
+    return pytesseract.image_to_string(
+        processed,
+        config=FIELD_OCR_CONFIG.get(field_name, DEFAULT_OCR_CONFIG),
+    ).strip()
+
+
+@lru_cache(maxsize=1)
+def known_disc_name_set() -> frozenset[str]:
+    return frozenset(load_drive_disc_names())
+
+
+def score_disc_name_text(text: str) -> tuple[int, int]:
+    normalized_name = normalize_disc_name(text)
+    known_match = 1 if normalized_name in known_disc_name_set() else 0
+    return known_match, len(text.strip())
+
+
+def ocr_disc_name_crop(crop: Image.Image, debug_name: str | None = None) -> tuple[str, dict]:
+    started_at = perf_counter()
+    best_text = ""
+    best_variant = ""
+    variant_timings = {}
+
+    for variant_name, processed in preprocess_disc_name_variants(crop):
+        variant_started_at = perf_counter()
+        text = ocr_image(processed, field_name="disc_name")
+        variant_elapsed = perf_counter() - variant_started_at
+        variant_timings[variant_name] = {
+            "ocr": variant_elapsed,
+            "text": text,
+        }
+
+        if debug_name:
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            processed.save(OUTPUT_DIR / f"{debug_name}_{variant_name}.png")
+
+        if score_disc_name_text(text) > score_disc_name_text(best_text):
+            best_text = text
+            best_variant = variant_name
+
+    return best_text, {
+        "preprocess": 0,
+        "ocr": sum(timing["ocr"] for timing in variant_timings.values()),
+        "total": perf_counter() - started_at,
+        "variant": best_variant,
+        "variants": variant_timings,
+    }
+
+
 def ocr_crop(
     image: Image.Image,
     roi: dict,
@@ -69,6 +136,15 @@ def ocr_crop(
     started_at = perf_counter()
     x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
     crop = image.crop((x, y, x + w, y + h))
+
+    if field_name == "disc_name":
+        if debug_name:
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            crop.save(OUTPUT_DIR / f"{debug_name}_raw.png")
+
+        text, timing = ocr_disc_name_crop(crop, debug_name=debug_name)
+        timing["total"] = perf_counter() - started_at
+        return text, timing
 
     preprocess_started_at = perf_counter()
     processed = preprocess_for_ocr(crop, field_name=field_name)
@@ -80,13 +156,10 @@ def ocr_crop(
         processed.save(OUTPUT_DIR / f"{debug_name}_processed.png")
 
     ocr_started_at = perf_counter()
-    text = pytesseract.image_to_string(
-        processed,
-        config=FIELD_OCR_CONFIG.get(field_name, DEFAULT_OCR_CONFIG),
-    )
+    text = ocr_image(processed, field_name=field_name)
     ocr_elapsed = perf_counter() - ocr_started_at
 
-    return text.strip(), {
+    return text, {
         "preprocess": preprocess_elapsed,
         "ocr": ocr_elapsed,
         "total": perf_counter() - started_at,
