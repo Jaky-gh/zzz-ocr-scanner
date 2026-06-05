@@ -5,12 +5,8 @@ import mss
 import pygetwindow as gw
 from PIL import Image
 
-try:
-    from src.app_logging import configure_logging
-    from src.paths import OUTPUT_DIR
-except ModuleNotFoundError:
-    from app_logging import configure_logging
-    from paths import OUTPUT_DIR
+from src.app_logging import configure_logging
+from src.paths import OUTPUT_DIR
 
 
 ZZZ_TITLE_KEYWORDS = [

@@ -43,7 +43,7 @@ count-based stopping. Select the count text such as `1234/3000` when prompted.
 Start the row scanner:
 
 ```powershell
-.\venv\Scripts\python.exe src\scan_by_rows.py
+.\venv\Scripts\python.exe -m src.scan_by_rows
 ```
 
 Output is written to:
@@ -74,7 +74,7 @@ OCR fields run in parallel by default. To compare worker counts:
 
 ```powershell
 $env:ZZZ_OCR_WORKERS=1
-.\venv\Scripts\python.exe src\scan_by_rows.py
+.\venv\Scripts\python.exe -m src.scan_by_rows
 ```
 
 ## Stop Conditions
