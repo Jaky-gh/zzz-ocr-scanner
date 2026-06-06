@@ -1,0 +1,20 @@
+{
+  "disc_inventory_1616x939_20260606_001714.png": {
+    "disc_name": "White Water Ballad",
+    "slot": 1,
+    "main_stat": {
+      "stat": "HP",
+      "value": "2200"
+    },
+    "level": 15
+  },
+  "disc_inventory_1920x1080_20260606_001555.png": {
+    "disc_name": "White Water Ballad",
+    "slot": 1,
+    "main_stat": {
+      "stat": "HP",
+      "value": "2200"
+    },
+    "level": 15
+  }
+}

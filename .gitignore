@@ -56,3 +56,6 @@ tmp/
 *.bmp
 *.tiff
 *.webp
+!tests/fixtures/
+!tests/fixtures/screenshots/
+!tests/fixtures/screenshots/*.png
