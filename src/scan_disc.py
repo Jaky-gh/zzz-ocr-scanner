@@ -11,6 +11,7 @@ import pytesseract
 from PIL import Image
 
 from src.app_logging import configure_logging
+from src.coordinate_scaling import get_config_base_size, scale_rois
 from src.capture_window import capture_existing_window, capture_window
 from src.paths import OUTPUT_DIR, ROI_CONFIG_PATH, SCANNED_DISCS_PATH
 from src.text_parser import build_disc_json, load_drive_disc_names, normalize_disc_name
@@ -29,6 +30,7 @@ FIELD_OCR_CONFIG = {
     "disc_count": "--psm 7 -c tessedit_char_whitelist=0123456789/",
 }
 DEFAULT_OCR_WORKERS = 4
+ROI_FIELD_NAMES = frozenset({"disc_name", "main_stat", "level", "substats"})
 
 # Update this if your Tesseract path is different.
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -167,12 +169,47 @@ def ocr_crop(
 
 
 @lru_cache(maxsize=1)
-def load_rois() -> dict:
+def load_roi_config() -> dict:
     if not CONFIG_PATH.exists():
         raise RuntimeError("Missing roi_config.json. Run calibrate_rois.py first.")
 
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_rois() -> dict:
+    return {
+        field_name: roi
+        for field_name, roi in load_roi_config().items()
+        if field_name in ROI_FIELD_NAMES
+    }
+
+
+def load_roi_base_size() -> tuple[int, int] | None:
+    return get_config_base_size(load_roi_config().get("_meta", {}))
+
+
+def maybe_scale_rois_for_image(rois: dict, image: Image.Image) -> dict:
+    base_size = load_roi_base_size()
+
+    if base_size is None:
+        logger.debug("No ROI base_window_size configured; using absolute ROI coordinates.")
+        return rois
+
+    image_size = image.size
+
+    if image_size == base_size:
+        logger.debug("Image size matches ROI base_window_size=%sx%s.", *base_size)
+        return rois
+
+    logger.debug(
+        "Scaling OCR ROIs from base_window_size=%sx%s to current image=%sx%s.",
+        base_size[0],
+        base_size[1],
+        image_size[0],
+        image_size[1],
+    )
+    return scale_rois(rois, base_size, image_size)
 
 
 def get_ocr_worker_count(field_count: int) -> int:
@@ -270,6 +307,7 @@ def scan_current_disc(window=None, return_timing: bool = False):
     else:
         screenshot = capture_existing_window(window)
     timings["capture"] = perf_counter() - capture_started_at
+    rois = maybe_scale_rois_for_image(rois, screenshot)
 
     all_ocr_started_at = perf_counter()
     ocr_results, ocr_metadata = run_ocr_fields(screenshot, rois)

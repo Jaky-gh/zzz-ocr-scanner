@@ -11,8 +11,9 @@ import pydirectinput
 from src.app_logging import configure_logging
 from src.capture_window import capture_existing_window
 from src.capture_window import find_zzz_window, activate_window
+from src.coordinate_scaling import maybe_scale_config_for_window
 from src.paths import GRID_CONFIG_PATH, OUTPUT_DIR, SCANNED_DISCS_PATH
-from src.scan_disc import load_rois, ocr_crop, scan_current_disc
+from src.scan_disc import load_rois, maybe_scale_rois_for_image, ocr_crop, scan_current_disc
 from src.text_parser import load_drive_disc_names
 
 OUTPUT_PATH = SCANNED_DISCS_PATH
@@ -113,7 +114,7 @@ def save_unknown_disc_debug_crops(window, row_number: int, col_number: int, labe
     safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", label)
     debug_prefix = f"unknown_disc_{safe_label}_r{row_number}_c{col_number}"
 
-    for field_name, roi in load_rois().items():
+    for field_name, roi in maybe_scale_rois_for_image(load_rois(), screenshot).items():
         debug_name = f"{debug_prefix}_{field_name}"
         text, timing = ocr_crop(
             image=screenshot,
@@ -437,6 +438,7 @@ def main():
 
     window = find_zzz_window()
     activate_window(window)
+    config = maybe_scale_config_for_window(config, window)
     total_disc_count = read_total_disc_count(window, config)
 
     initial_scan_rows = config.get("initial_scan_rows", [1, 2, 3])

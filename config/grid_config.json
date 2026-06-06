@@ -1,4 +1,8 @@
 {
+  "base_window_size": {
+    "width": 1296,
+    "height": 759
+  },
   "columns": 9,
   "rows": 4,
   "first_x": 117,
