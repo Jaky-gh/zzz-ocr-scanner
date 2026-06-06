@@ -38,6 +38,18 @@ Then run ROI calibration:
 The ROI calibration can also save an optional inventory count ROI used for
 count-based stopping. Select the count text such as `1234/3000` when prompted.
 
+Calibration stores the window size used for the selected coordinates. During
+scans, grid positions and OCR ROIs are scaled from that base size to the current
+ZZZ window size.
+
+To capture a screenshot fixture for tests, open the Drive Disc inventory and run:
+
+```powershell
+.\venv\Scripts\python.exe -m src.tools.capture_zzz_screenshot
+```
+
+Use `--name disc_inventory_1920x1080.png` to choose a stable filename.
+
 ## Scanning
 
 Start the row scanner:
@@ -89,4 +101,19 @@ If count OCR fails, debug images are saved:
 ```text
 output/inventory_count_roi_raw.png
 output/inventory_count_roi_processed.png
+```
+
+## Checks
+
+Run the lightweight parser and scaling checks:
+
+```powershell
+.\venv\Scripts\python.exe -m src.tools.test_text_parser
+.\venv\Scripts\python.exe -m src.tools.test_coordinate_scaling
+```
+
+Run OCR against tracked screenshot fixtures:
+
+```powershell
+.\venv\Scripts\python.exe -m src.tools.test_screenshot_fixtures
 ```
