@@ -13,6 +13,14 @@ OUTPUT_PATH = GRID_CONFIG_PATH
 logger = logging.getLogger("zzz_scanner.calibrate_grid")
 
 
+def load_existing_config() -> dict:
+    if not OUTPUT_PATH.exists():
+        return {}
+
+    with open(OUTPUT_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def ask_point(label: str):
     input(f"\nMove your mouse to the CENTER of {label}, then press ENTER here...")
     x, y = pydirectinput.position()
@@ -45,17 +53,21 @@ def main():
     x_step = x2 - x1
     y_step = y3 - y1
 
-    config = {
-        "columns": 9,
-        "rows": 5,
-        "first_x": first_x,
-        "first_y": first_y,
-        "x_step": x_step,
-        "y_step": y_step,
-        "click_delay": 1.0,
-        "scroll_amount": -5,
-        "page_delay": 0.7
-    }
+    config = load_existing_config()
+    config.update(
+        {
+            "base_window_size": {
+                "width": int(window.width),
+                "height": int(window.height),
+            },
+            "columns": config.get("columns", 9),
+            "rows": config.get("rows", 4),
+            "first_x": first_x,
+            "first_y": first_y,
+            "x_step": x_step,
+            "y_step": y_step,
+        }
+    )
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 

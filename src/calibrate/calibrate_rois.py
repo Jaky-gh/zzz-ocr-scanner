@@ -60,12 +60,30 @@ def save_roi_preview(img, name: str, roi: dict):
     logger.info("Saved %s preview to %s", name, preview_path)
 
 
-def save_inventory_count_roi(roi: dict):
-    config = load_grid_config()
-    config["inventory_count_roi"] = roi
-
+def save_grid_config(config: dict):
     with open(GRID_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2)
+
+
+def save_grid_base_window_size(image_size: tuple[int, int]):
+    config = load_grid_config()
+    config["base_window_size"] = {
+        "width": int(image_size[0]),
+        "height": int(image_size[1]),
+    }
+    save_grid_config(config)
+    logger.info("Saved base_window_size=%sx%s to %s", *image_size, GRID_CONFIG_PATH)
+
+
+def save_inventory_count_roi(roi: dict, image_size: tuple[int, int]):
+    config = load_grid_config()
+    config["inventory_count_roi"] = roi
+    config["base_window_size"] = {
+        "width": int(image_size[0]),
+        "height": int(image_size[1]),
+    }
+
+    save_grid_config(config)
 
     logger.info("Saved inventory_count_roi to %s", GRID_CONFIG_PATH)
 
@@ -76,12 +94,19 @@ def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     image = capture_window("ZenlessZoneZero")
+    image_size = image.size
     image_path = OUTPUT_DIR / "calibration_screenshot.png"
     image.save(image_path)
 
     img = cv2.imread(image_path)
 
     rois = load_existing_rois()
+    rois["_meta"] = {
+        "base_window_size": {
+            "width": int(image_size[0]),
+            "height": int(image_size[1]),
+        }
+    }
     selected_count = 0
 
     logger.info("Draw each ROI, then press ENTER/SPACE. Press C to cancel current selection.")
@@ -96,13 +121,18 @@ def main():
             save_roi_preview(img, name, roi)
 
     if selected_count == 0:
-        logger.info("No ROI was selected. Existing ROI config was left unchanged.")
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(rois, f, indent=2)
+
+        save_grid_base_window_size(image_size)
+        logger.info("No ROI was selected. Saved base window size metadata only.")
         return
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(rois, f, indent=2)
 
     logger.info("Saved ROI config to %s", CONFIG_PATH)
+    save_grid_base_window_size(image_size)
 
     answer = input(
         "Calibrate inventory count ROI for count-based stop? "
@@ -116,7 +146,7 @@ def main():
     count_roi = select_roi(img, "inventory_count")
 
     if count_roi:
-        save_inventory_count_roi(count_roi)
+        save_inventory_count_roi(count_roi, image_size)
 
 
 if __name__ == "__main__":
